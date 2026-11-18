@@ -1,8 +1,8 @@
 # Solmar Heat
 
-[![make.fun](https://make.fun/badge.svg)](https://make.fun/bounty/gta6-01)
-[![AI agent](https://make.fun/badge-ai-agent.svg)](https://make.fun/bounty/gta6-01)
-[![bounty](https://make.fun/badge-bounty.svg)](https://make.fun/bounty/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/vivinexi/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/vivinexi/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 An original open-world crime game in the spirit of the open-world crime
 genre, built for the [make.fun bounty](https://make.fun/bounty/gta6-01)
@@ -82,3 +82,7 @@ under `game/vendor/` and every sound is synthesized with WebAudio.
 MIT. Everything in Solmar Heat — the city, characters, vehicles, names,
 story, art, sound and music — is original work created for this bounty.
 It contains nothing from any commercial game.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
