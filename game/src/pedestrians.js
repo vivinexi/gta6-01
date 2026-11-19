@@ -1,142 +1,100 @@
-// Pedestrians: locals strolling the sidewalks. They walk a road line, turn
-// at intersections, and flee when a crime happens, a gun goes off, or a car
-// bears down on them. Hit one with a car and the wanted level goes up.
-import { CITY, PEDESTRIANS } from './config.js';
-import { makeHumanoid } from './player.js';
-import { ROAD_LINES } from './world.js';
-import { clamp, pick } from './random.js';
+// Port Vela on foot: pedestrians strolling the sidewalks, turning at
+// intersections, and running away from gunfire, speeding cars and police chases.
+import * as THREE from '../vendor/three.module.js';
+import { CITY_HALF, PALETTE, PLAYER, STREETS } from './config.js';
+import { createRandom } from './random.js';
 
-const SHIRTS = [0xe07b39, 0x2fae6e, 0xd8d8d8, 0xf2c94c, 0x7a4fd0, 0xe88aa0];
-const PANTS = [0x22252a, 0x4a3a2a, 0x2a3a4a, 0x5a5a5a];
+function makePedMesh(color) {
+  const group = new THREE.Group();
+  const shirt = new THREE.MeshLambertMaterial({ color });
+  const pants = new THREE.MeshLambertMaterial({ color: 0x2a3242 });
+  const skin = new THREE.MeshLambertMaterial({ color: 0xc98a5e });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.66, 0.3), shirt);
+  torso.position.y = 1.05;
+  torso.castShadow = true;
+  group.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), skin);
+  head.position.y = 1.58;
+  group.add(head);
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.66, 0.22), pants);
+  legL.position.set(-0.14, 0.33, 0);
+  group.add(legL);
+  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.66, 0.22), pants);
+  legR.position.set(0.14, 0.33, 0);
+  group.add(legR);
+  return { group, legL, legR };
+}
 
-export function createPedestrians(scene, world, random) {
+export function createPedestrians(scene, seed, count = 16) {
+  const random = createRandom(seed ^ 0x9e2d);
   const peds = [];
-  for (let i = 0; i < PEDESTRIANS.count; i += 1) {
-    const mesh = makeHumanoid(pick(random, SHIRTS), pick(random, PANTS));
-    scene.add(mesh);
-    const line = pick(random, ROAD_LINES);
-    const along = (random() - 0.5) * (CITY.bounds * 2 - 40);
-    const side = random() < 0.5 ? -1 : 1;
-    const axis = random() < 0.5 ? 'x' : 'z';
-    const x = axis === 'x' ? along : line + side * 9.5;
-    const z = axis === 'x' ? line + side * 9.5 : along;
-    const heading = axis === 'x' ? (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : random() < 0.5 ? 0 : Math.PI;
+  for (let i = 0; i < count; i += 1) {
+    const onVertical = random() < 0.5;
+    const street = STREETS[Math.floor(random() * STREETS.length)];
+    const along = (random() * 2 - 1) * (CITY_HALF - 20);
+    const side = (random() < 0.5 ? -1 : 1) * 9.5;
+    const x = onVertical ? street + side : along;
+    const z = onVertical ? along : street + side;
+    const mesh = makePedMesh(PALETTE.ped[Math.floor(random() * PALETTE.ped.length)]);
+    mesh.group.position.set(x, 0, z);
+    scene.add(mesh.group);
     peds.push({
-      mesh, x, z, heading,
-      axis, line, side,
-      speed: PEDESTRIANS.walkSpeed * (0.8 + random() * 0.5),
-      state: 'walk',
-      downTimer: 0,
-      fleeTimer: 0,
+      mesh,
+      x,
+      z,
+      heading: random() * Math.PI * 2,
+      speed: 1.1 + random() * 0.9,
+      fleeing: 0,
       walkPhase: random() * 6,
-      respawnTimer: 0,
+      turnAt: 2 + random() * 6,
     });
   }
+  return peds;
+}
 
-  function placeAtEdge(ped) {
-    ped.line = pick(random, ROAD_LINES);
-    ped.axis = random() < 0.5 ? 'x' : 'z';
-    ped.side = random() < 0.5 ? -1 : 1;
-    const along = (random() < 0.5 ? -1 : 1) * (CITY.bounds - 20);
-    ped.x = ped.axis === 'x' ? along : ped.line + ped.side * 9.5;
-    ped.z = ped.axis === 'x' ? ped.line + ped.side * 9.5 : along;
-    ped.heading = ped.axis === 'x' ? Math.PI / 2 : 0;
-    ped.state = 'walk';
-    ped.downTimer = 0;
-    ped.mesh.visible = true;
-    ped.mesh.rotation.set(0, ped.heading, 0);
+/** A ped flees from `threats`: [{x, z, radius}]. Returns how many are fleeing. */
+export function stepPedestrians(peds, dt, threats, resolveCircle) {
+  let fleeing = 0;
+  for (const ped of peds) {
+    let fleeX = 0;
+    let fleeZ = 0;
+    for (const threat of threats) {
+      const dx = ped.x - threat.x;
+      const dz = ped.z - threat.z;
+      const d = Math.hypot(dx, dz);
+      if (d < threat.radius && d > 0.01) {
+        fleeX += (dx / d) * (threat.radius - d);
+        fleeZ += (dz / d) * (threat.radius - d);
+      }
+    }
+    if (fleeX !== 0 || fleeZ !== 0) {
+      ped.fleeing = 1.5;
+      ped.heading = Math.atan2(fleeX, fleeZ);
+    } else if (ped.fleeing > 0) {
+      ped.fleeing -= dt;
+    } else {
+      ped.turnAt -= dt;
+      if (ped.turnAt <= 0) {
+        ped.turnAt = 3 + Math.random() * 7;
+        // Turn at an intersection: pick a street direction.
+        ped.heading = (Math.floor(Math.random() * 4) * Math.PI) / 2;
+      }
+    }
+    const speed = ped.fleeing > 0 ? 5.2 : ped.speed;
+    if (ped.fleeing > 0) fleeing += 1;
+    ped.x += Math.sin(ped.heading) * speed * dt;
+    ped.z += Math.cos(ped.heading) * speed * dt;
+    // Peds stay on the pavements: clamp them inside the city and out of buildings.
+    const probe = { x: ped.x, z: ped.z };
+    resolveCircle(probe, PLAYER.radius);
+    ped.x = Math.max(-CITY_HALF, Math.min(CITY_HALF, probe.x));
+    ped.z = Math.max(-CITY_HALF, Math.min(CITY_HALF, probe.z));
+    ped.walkPhase += dt * speed * 2.4;
+    const swing = Math.sin(ped.walkPhase) * 0.5;
+    ped.mesh.legL.rotation.x = swing;
+    ped.mesh.legR.rotation.x = -swing;
+    ped.mesh.group.position.set(ped.x, 0, ped.z);
+    ped.mesh.group.rotation.y = ped.heading;
   }
-
-  return {
-    peds,
-    /** A gunshot or a crime nearby: everyone in range runs. */
-    scare(x, z, radius) {
-      for (const ped of peds) {
-        if (ped.state !== 'walk') continue;
-        if (Math.hypot(ped.x - x, ped.z - z) < radius) {
-          ped.state = 'flee';
-          ped.fleeTimer = 3 + Math.random() * 2;
-        }
-      }
-    },
-    update(dt, threat, playerCar) {
-      for (const ped of peds) {
-        if (ped.state === 'down') {
-          ped.downTimer -= dt;
-          if (ped.downTimer <= 0) placeAtEdge(ped);
-          continue;
-        }
-        // Flee from a fast car or a fresh threat.
-        let fx = 0;
-        let fz = 0;
-        if (threat) {
-          const dx = ped.x - threat.x;
-          const dz = ped.z - threat.z;
-          const d = Math.hypot(dx, dz);
-          if (d < threat.radius && d > 0.01) {
-            fx = dx / d;
-            fz = dz / d;
-            ped.state = 'flee';
-            ped.fleeTimer = 2;
-          }
-        }
-        if (playerCar && Math.abs(playerCar.speed) > 6) {
-          const dx = ped.x - playerCar.x;
-          const dz = ped.z - playerCar.z;
-          const d = Math.hypot(dx, dz);
-          if (d < 10 && d > 0.01) {
-            fx = dx / d;
-            fz = dz / d;
-            ped.state = 'flee';
-            ped.fleeTimer = 2;
-          }
-        }
-        if (ped.state === 'flee') {
-          ped.fleeTimer -= dt;
-          if (ped.fleeTimer <= 0) ped.state = 'walk';
-          ped.x += fx * PEDESTRIANS.runSpeed * dt;
-          ped.z += fz * PEDESTRIANS.runSpeed * dt;
-          ped.heading = Math.atan2(fx, fz);
-        } else {
-          // Stroll along the sidewalk; turn at an intersection sometimes.
-          const along = ped.axis === 'x' ? ped.x : ped.z;
-          const nearLine = ROAD_LINES.find((l) => Math.abs(along - l) < 3);
-          if (nearLine !== undefined && Math.random() < dt * 0.15) {
-            ped.axis = ped.axis === 'x' ? 'z' : 'x';
-            ped.heading = ped.axis === 'x' ? (Math.random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : Math.random() < 0.5 ? 0 : Math.PI;
-          }
-          ped.x += Math.sin(ped.heading) * ped.speed * dt;
-          ped.z += Math.cos(ped.heading) * ped.speed * dt;
-        }
-        ped.x = clamp(ped.x, -CITY.bounds, CITY.bounds);
-        ped.z = clamp(ped.z, -CITY.bounds, CITY.seaZ - 4);
-        const fixed = world.resolveCircle(ped.x, ped.z, 0.55);
-        ped.x = fixed.x;
-        ped.z = fixed.z;
-        ped.walkPhase += dt * (ped.state === 'flee' ? 14 : 5);
-        const swing = Math.sin(ped.walkPhase) * 0.55;
-        ped.mesh.userData.legL.rotation.x = swing;
-        ped.mesh.userData.legR.rotation.x = -swing;
-        ped.mesh.userData.armL.rotation.x = -swing * 0.8;
-        ped.mesh.userData.armR.rotation.x = swing * 0.8;
-        ped.mesh.position.set(ped.x, 0, ped.z);
-        ped.mesh.rotation.y = ped.heading;
-      }
-    },
-    /** Hit by the player's car: knock down, wanted goes up, respawn later. */
-    hitByCar(car) {
-      let hit = false;
-      for (const ped of peds) {
-        if (ped.state === 'down') continue;
-        if (Math.hypot(ped.x - car.x, ped.z - car.z) < 2.4) {
-          ped.state = 'down';
-          ped.downTimer = 6;
-          ped.mesh.rotation.x = -Math.PI / 2;
-          ped.mesh.position.y = 0.4;
-          hit = true;
-        }
-      }
-      return hit;
-    },
-  };
+  return fleeing;
 }

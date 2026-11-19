@@ -1,193 +1,190 @@
-// Combat: the pistol (hitscan from the camera, tracer + impact), the punch,
-// and the Vultures — rival crew members with health bars who shoot back.
+// Combat: Maya's pistol (hitscan, camera-aimed) and punch, and the Breakers —
+// armed rivals with health bars who shoot back when Maya is close enough.
+// Rivals are simple figures with a floating health bar made of two thin boxes.
 import * as THREE from '../vendor/three.module.js';
-import { makeHumanoid } from './player.js';
-import { PALETTE } from './config.js';
+import { COMBAT, PALETTE } from './config.js';
+import { createRandom } from './random.js';
 
-const ENEMY_HEALTH = 50;
-const ENEMY_SHOT_DAMAGE = 8;
-const ENEMY_SHOT_INTERVAL = 1.4;
-const ENEMY_RANGE = 46;
-const PISTOL_DAMAGE = 34;
-const PISTOL_COOLDOWN = 0.28;
-const PUNCH_DAMAGE = 25;
-const PUNCH_RANGE = 2.4;
-
-function makeHealthBar() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 64;
-  canvas.height = 10;
-  const tex = new THREE.CanvasTexture(canvas);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-  sprite.scale.set(2.2, 0.35, 1);
-  sprite.position.y = 2.5;
-  return { sprite, canvas, tex };
+function makeRivalMesh() {
+  const group = new THREE.Group();
+  const dark = new THREE.MeshLambertMaterial({ color: PALETTE.rival });
+  const skin = new THREE.MeshLambertMaterial({ color: 0x8a5a3a });
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.34), dark);
+  torso.position.y = 1.12;
+  torso.castShadow = true;
+  group.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.36), skin);
+  head.position.y = 1.68;
+  group.add(head);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.14, 0.38), new THREE.MeshLambertMaterial({ color: 0xc23b2e }));
+  cap.position.y = 1.88;
+  group.add(cap);
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.72, 0.26), dark);
+  legL.position.set(-0.17, 0.36, 0);
+  group.add(legL);
+  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.72, 0.26), dark);
+  legR.position.set(0.17, 0.36, 0);
+  group.add(legR);
+  // Health bar: a dark backing and a green-to-red fill that shrinks with damage.
+  const barBack = new THREE.Mesh(
+    new THREE.BoxGeometry(1.1, 0.12, 0.02),
+    new THREE.MeshBasicMaterial({ color: 0x111111 }),
+  );
+  barBack.position.y = 2.15;
+  group.add(barBack);
+  const barFill = new THREE.Mesh(
+    new THREE.BoxGeometry(1.04, 0.08, 0.03),
+    new THREE.MeshBasicMaterial({ color: 0x37c24a }),
+  );
+  barFill.position.y = 2.15;
+  group.add(barFill);
+  return { group, barFill };
 }
 
-function drawHealthBar(bar, frac) {
-  const ctx = bar.canvas.getContext('2d');
-  ctx.fillStyle = '#401010';
-  ctx.fillRect(0, 0, 64, 10);
-  ctx.fillStyle = frac > 0.5 ? '#3fce62' : frac > 0.25 ? '#f2c94c' : '#e5534b';
-  ctx.fillRect(1, 1, Math.max(0, 62 * frac), 8);
-  bar.tex.needsUpdate = true;
-}
-
-export function createCombat(scene) {
-  const enemies = [];
-  const raycaster = new THREE.Raycaster();
-  const tracerMat = new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.9 });
-  let pistolCooldown = 0;
-  let punchCooldown = 0;
-
-  function spawnEnemy(x, z, name) {
-    const mesh = makeHumanoid(PALETTE.enemy, 0x22252a);
-    mesh.position.set(x, 0, z);
-    scene.add(mesh);
-    const bar = makeHealthBar();
-    mesh.add(bar.sprite);
-    drawHealthBar(bar, 1);
-    const enemy = { mesh, bar, x, z, heading: 0, health: ENEMY_HEALTH, shootTimer: 1 + Math.random(), name, dead: false };
-    enemies.push(enemy);
-    return enemy;
-  }
-
-  function removeEnemy(enemy) {
-    scene.remove(enemy.mesh);
-    const i = enemies.indexOf(enemy);
-    if (i >= 0) enemies.splice(i, 1);
-  }
-
+export function createCombat(scene, seed) {
+  const random = createRandom(seed ^ 0x2eaf);
   return {
-    enemies,
-    spawnEnemy,
-    removeEnemy,
-    clearEnemies() {
-      while (enemies.length) removeEnemy(enemies[0]);
-    },
-    /** Pistol shot from the camera through the crosshair. Returns what it hit. */
-    shoot(camera, world, audio, playerPos) {
-      if (pistolCooldown > 0) return { fired: false, hit: null };
-      pistolCooldown = PISTOL_COOLDOWN;
-      audio.gunshot();
-      raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-      raycaster.far = 120;
-      const targets = [];
-      for (const e of enemies) if (!e.dead) targets.push(e.mesh);
-      const hits = raycaster.intersectObjects(targets, true);
-      let end = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 90);
-      let hitEnemy = null;
-      if (hits.length) {
-        const hit = hits[0];
-        end = hit.point.clone();
-        // Walk up to the enemy root (the mesh group carrying the health bar).
-        let obj = hit.object;
-        while (obj.parent && obj.parent !== scene) obj = obj.parent;
-        hitEnemy = enemies.find((e) => e.mesh === obj) || null;
-        if (hitEnemy) {
-          hitEnemy.health -= PISTOL_DAMAGE;
-          drawHealthBar(hitEnemy.bar, Math.max(0, hitEnemy.health / ENEMY_HEALTH));
-          world.sparks(end.x, end.y, end.z, 6);
-          if (hitEnemy.health <= 0) {
-            hitEnemy.dead = true;
-            hitEnemy.mesh.rotation.x = -Math.PI / 2;
-            hitEnemy.mesh.position.y = 0.4;
-            removeEnemy(hitEnemy);
-          }
-        }
-      } else {
-        world.dust(end.x, Math.max(0.3, end.y), end.z, 3);
-      }
-      // Tracer: a fading line from the muzzle to the hit point.
-      const muzzle = playerPos.clone();
-      muzzle.y += 1.4;
-      const geo = new THREE.BufferGeometry().setFromPoints([muzzle, end]);
-      const line = new THREE.Line(geo, tracerMat.clone());
-      scene.add(line);
-      window.setTimeout(() => {
-        scene.remove(line);
-        geo.dispose();
-        line.material.dispose();
-      }, 70);
-      return { fired: true, hit: hitEnemy };
-    },
-    /** Punch: hits the nearest enemy in front, at arm's length. */
-    punch(player, audio, world) {
-      if (punchCooldown > 0) return null;
-      punchCooldown = 0.45;
-      audio.punch();
-      const fx = Math.sin(player.heading);
-      const fz = Math.cos(player.heading);
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const dx = e.x - player.x;
-        const dz = e.z - player.z;
-        const d = Math.hypot(dx, dz);
-        if (d < PUNCH_RANGE && dx * fx + dz * fz > 0) {
-          e.health -= PUNCH_DAMAGE;
-          drawHealthBar(e.bar, Math.max(0, e.health / ENEMY_HEALTH));
-          world.sparks(e.x, 1.2, e.z, 6);
-          if (e.health <= 0) {
-            e.dead = true;
-            e.mesh.rotation.x = -Math.PI / 2;
-            e.mesh.position.y = 0.4;
-            removeEnemy(e);
-          }
-          return e;
-        }
-      }
-      return null;
-    },
-    update(dt, player, playerCar, world, audio) {
-      pistolCooldown = Math.max(0, pistolCooldown - dt);
-      punchCooldown = Math.max(0, punchCooldown - dt);
-      const px = playerCar ? playerCar.x : player.x;
-      const pz = playerCar ? playerCar.z : player.z;
-      for (const e of enemies) {
-        if (e.dead) continue;
-        const dx = px - e.x;
-        const dz = pz - e.z;
-        const dist = Math.hypot(dx, dz);
-        // Close in to shooting range, then stand and fire.
-        if (dist > 16) {
-          const sp = 3.4;
-          e.x += (dx / dist) * sp * dt;
-          e.z += (dz / dist) * sp * dt;
-          e.heading = Math.atan2(dx, dz);
-          e.mesh.rotation.y = e.heading;
-          e.mesh.position.set(e.x, 0, e.z);
-          const swing = Math.sin(performance.now() / 120) * 0.5;
-          e.mesh.userData.legL.rotation.x = swing;
-          e.mesh.userData.legR.rotation.x = -swing;
-        } else {
-          e.heading = Math.atan2(dx, dz);
-          e.mesh.rotation.y = e.heading;
-          e.shootTimer -= dt;
-          if (e.shootTimer <= 0 && dist < ENEMY_RANGE) {
-            e.shootTimer = ENEMY_SHOT_INTERVAL;
-            audio.gunshot();
-            // Tracer from the enemy toward the player; a hit hurts.
-            const from = new THREE.Vector3(e.x, 1.4, e.z);
-            const to = new THREE.Vector3(px, 1.2, pz);
-            const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-            const line = new THREE.Line(geo, tracerMat.clone());
-            scene.add(line);
-            window.setTimeout(() => {
-              scene.remove(line);
-              geo.dispose();
-              line.material.dispose();
-            }, 90);
-            if (Math.random() < 0.55) {
-              if (playerCar) {
-                playerCar.health = Math.max(0, playerCar.health - ENEMY_SHOT_DAMAGE);
-              } else {
-                player.health = Math.max(0, player.health - ENEMY_SHOT_DAMAGE);
-              }
-              world.sparks(px, 1.2, pz, 4);
-            }
-          }
-        }
-      }
-    },
+    scene,
+    random,
+    rivals: [],
+    pistolCooldown: 0,
+    punchCooldown: 0,
   };
+}
+
+export function spawnRivals(combat, count, x, z) {
+  for (let i = 0; i < count; i += 1) {
+    const mesh = makeRivalMesh();
+    const rx = x + (combat.random() - 0.5) * 14;
+    const rz = z + (combat.random() - 0.5) * 14;
+    mesh.group.position.set(rx, 0, rz);
+    combat.scene.add(mesh.group);
+    combat.rivals.push({
+      mesh,
+      x: rx,
+      z: rz,
+      heading: combat.random() * Math.PI * 2,
+      health: COMBAT.rivalHealth,
+      shootCooldown: 1 + combat.random(),
+      walkPhase: combat.random() * 6,
+    });
+  }
+}
+
+/** The nearest rival within `range` of a point, or null. */
+export function nearestRival(combat, x, z, range) {
+  let best = null;
+  let bestD = range;
+  for (const rival of combat.rivals) {
+    const d = Math.hypot(rival.x - x, rival.z - z);
+    if (d < bestD) {
+      bestD = d;
+      best = rival;
+    }
+  }
+  return best;
+}
+
+/**
+ * Fire the pistol from the camera through the crosshair. Hits the first rival
+ * within range and a narrow cone of the aim ray; returns the rival hit or null.
+ */
+export function shoot(combat, origin, dir) {
+  if (combat.pistolCooldown > 0) return null;
+  combat.pistolCooldown = COMBAT.pistolCooldown;
+  let best = null;
+  let bestT = COMBAT.pistolRange;
+  for (const rival of combat.rivals) {
+    const rx = rival.x - origin.x;
+    const rz = rival.z - origin.z;
+    const t = rx * dir.x + rz * dir.z;
+    if (t < 0 || t > COMBAT.pistolRange) continue;
+    const perp = Math.abs(rx * dir.z - rz * dir.x);
+    if (perp < 1.6 && t < bestT) {
+      bestT = t;
+      best = rival;
+    }
+  }
+  if (best) {
+    best.health -= COMBAT.pistolDamage;
+    updateRivalBar(best);
+  }
+  return best;
+}
+
+/** Punch the nearest rival in front of Maya; returns the rival hit or null. */
+export function punch(combat, px, pz, heading) {
+  if (combat.punchCooldown > 0) return null;
+  combat.punchCooldown = COMBAT.punchCooldown;
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  let best = null;
+  let bestD = COMBAT.punchRange;
+  for (const rival of combat.rivals) {
+    const dx = rival.x - px;
+    const dz = rival.z - pz;
+    const d = Math.hypot(dx, dz);
+    const facing = (dx * fx + dz * fz) / (d || 1);
+    if (d < bestD && facing > 0.3) {
+      bestD = d;
+      best = rival;
+    }
+  }
+  if (best) {
+    best.health -= COMBAT.punchDamage;
+    updateRivalBar(best);
+  }
+  return best;
+}
+
+function updateRivalBar(rival) {
+  const ratio = Math.max(0, rival.health / COMBAT.rivalHealth);
+  rival.mesh.barFill.scale.x = ratio;
+  rival.mesh.barFill.position.x = -(1 - ratio) * 0.52;
+  rival.mesh.barFill.material.color.setHex(ratio > 0.5 ? 0x37c24a : ratio > 0.25 ? 0xe8a832 : 0xe83232);
+}
+
+function removeRival(combat, rival) {
+  combat.scene.remove(rival.mesh.group);
+  combat.rivals.splice(combat.rivals.indexOf(rival), 1);
+}
+
+/**
+ * One combat step: cooldowns tick, rivals advance on Maya and shoot when close.
+ * Returns { damage } — health Maya lost to rival fire this step — and raises
+ * wanted by one when a rival dies (a body in the street draws the police).
+ */
+export function stepCombat(combat, dt, player, resolveCircle) {
+  combat.pistolCooldown = Math.max(0, combat.pistolCooldown - dt);
+  combat.punchCooldown = Math.max(0, combat.punchCooldown - dt);
+  let damage = 0;
+  let killed = 0;
+  for (const rival of [...combat.rivals]) {
+    const dx = player.x - rival.x;
+    const dz = player.z - rival.z;
+    const dist = Math.hypot(dx, dz);
+    rival.heading = Math.atan2(dx, dz);
+    if (dist > 14) {
+      rival.x += Math.sin(rival.heading) * 3.4 * dt;
+      rival.z += Math.cos(rival.heading) * 3.4 * dt;
+      const probe = { x: rival.x, z: rival.z };
+      resolveCircle(probe, 0.6);
+      rival.x = probe.x;
+      rival.z = probe.z;
+    }
+    rival.shootCooldown -= dt;
+    if (dist < COMBAT.rivalRange && rival.shootCooldown <= 0) {
+      rival.shootCooldown = COMBAT.rivalShotCooldown;
+      // Rivals miss more at range; a hit still stings.
+      if (Math.random() < 0.55) damage += COMBAT.rivalShotDamage;
+    }
+    rival.walkPhase += dt * 6;
+    rival.mesh.group.position.set(rival.x, 0, rival.z);
+    rival.mesh.group.rotation.y = rival.heading;
+    if (rival.health <= 0) {
+      removeRival(combat, rival);
+      killed += 1;
+    }
+  }
+  return { damage, killed };
 }

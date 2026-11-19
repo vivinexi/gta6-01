@@ -1,159 +1,173 @@
-// The wanted system: crimes add stars, police cars spawn and chase, stars
-// decay when the player stays out of sight, and getting caught means BUSTED.
-import { CITY, POLICE, WANTED } from './config.js';
-import { makeCar } from './vehicles.js';
-import { angleDelta, clamp } from './random.js';
-import { ROAD_LINES } from './world.js';
+// The wanted system: stars, police pursuit, ramming, busts and heat decay.
+// Police cars spawn on the streets around Maya, chase her position, and ram.
+// On foot, a police car parked on top of her for long enough busts her.
+import { createCar, removeCar, stepCar, steerToward } from './vehicles.js';
+import { POLICE, STREETS, WANTED } from './config.js';
+import { createRandom } from './random.js';
 
-export function createWanted(scene, world, random) {
-  const policeCars = [];
-  let stars = 0;
-  let lastCrimeAt = -999;
-  let decayTimer = 0;
-  let bustedTimer = 0;
-  let sirenOn = false;
-
-  function spawnPolice(x, z) {
-    // Spawn on a nearby road, a little away from the player.
-    const line = ROAD_LINES.reduce((best, l) => (Math.abs(l - x) < Math.abs(best - x) ? l : best), ROAD_LINES[0]);
-    const px = line + (random() < 0.5 ? -3.2 : 3.2);
-    const pz = z + (random() < 0.5 ? -1 : 1) * (40 + random() * 30);
-    const car = makeCar(scene, px, clamp(pz, -CITY.bounds, CITY.bounds), 0, 0x1a1d22, true);
-    car.parked = false;
-    car.speed = 10;
-    policeCars.push({ car, stuckTimer: 0, ramCooldown: 0, lastX: px, lastZ: pz });
+/** The nearest street intersection to a point (streets form a 7x7 grid). */
+function nearestIntersection(x, z) {
+  let bx = STREETS[0];
+  let bz = STREETS[0];
+  for (const s of STREETS) {
+    if (Math.abs(x - s) < Math.abs(x - bx)) bx = s;
+    if (Math.abs(z - s) < Math.abs(z - bz)) bz = s;
   }
+  return { x: bx, z: bz };
+}
 
-  function removePolice(index) {
-    const entry = policeCars[index];
-    entry.car.mesh.visible = false;
-    scene.remove(entry.car.mesh);
-    policeCars.splice(index, 1);
+/**
+ * A street route between two intersections: breadth-first search over the
+ * grid, so a police car drives around the blocks instead of through them.
+ * Returns the intersections to drive through, in order (excluding the start).
+ */
+function streetRoute(from, to) {
+  const ix = (v) => STREETS.indexOf(v);
+  const start = [ix(from.x), ix(from.z)];
+  const goal = [ix(to.x), ix(to.z)];
+  const prev = new Map();
+  const key = (x, z) => `${x},${z}`;
+  const queue = [start];
+  prev.set(key(start[0], start[1]), null);
+  while (queue.length > 0) {
+    const [cx, cz] = queue.shift();
+    if (cx === goal[0] && cz === goal[1]) break;
+    for (const [nx, nz] of [[cx + 1, cz], [cx - 1, cz], [cx, cz + 1], [cx, cz - 1]]) {
+      if (nx < 0 || nz < 0 || nx >= STREETS.length || nz >= STREETS.length) continue;
+      if (prev.has(key(nx, nz))) continue;
+      prev.set(key(nx, nz), [cx, cz]);
+      queue.push([nx, nz]);
+    }
   }
+  const path = [];
+  let cur = goal;
+  while (cur) {
+    path.unshift({ x: STREETS[cur[0]], z: STREETS[cur[1]] });
+    cur = prev.get(key(cur[0], cur[1]));
+  }
+  path.shift(); // The start intersection is where the car already is.
+  return path;
+}
 
+export function createPolice(scene, seed) {
+  const random = createRandom(seed ^ 0xba11);
   return {
-    get stars() {
-      return stars;
-    },
-    get sirenOn() {
-      return sirenOn;
-    },
-    get busted() {
-      return bustedTimer >= WANTED.bustedHold;
-    },
-    policeCars,
-    addCrime(n, time) {
-      stars = Math.min(WANTED.maxStars, stars + n);
-      lastCrimeAt = time;
-      decayTimer = 0;
-    },
-    setStars(n, time) {
-      stars = clamp(n, 0, WANTED.maxStars);
-      lastCrimeAt = time;
-      decayTimer = 0;
-    },
-    reset() {
-      stars = 0;
-      lastCrimeAt = -999;
-      bustedTimer = 0;
-      while (policeCars.length) removePolice(0);
-    },
-    update(dt, time, player, playerCar, world, audio, onBusted) {
-      const target = playerCar || player;
-      const tx = target.x;
-      const tz = target.z;
-      // Spawn police to match the star level (one car per star, up to 5).
-      sirenOn = stars > 0;
-      while (policeCars.length < stars) spawnPolice(tx, tz);
-      while (policeCars.length > stars) removePolice(policeCars.length - 1);
-      // Wanted decays when hidden: no crime for a while and no police near.
-      if (stars > 0) {
-        const nearest = policeCars.reduce((m, e) => Math.min(m, Math.hypot(e.car.x - tx, e.car.z - tz)), Infinity);
-        if (time - lastCrimeAt > WANTED.decayDelay && nearest > WANTED.hideDistance) {
-          decayTimer += dt;
-          if (decayTimer >= WANTED.decayInterval) {
-            stars -= 1;
-            decayTimer = 0;
-          }
-        } else {
-          decayTimer = 0;
-        }
-      }
-      // Each police car chases the player and rams.
-      for (let i = policeCars.length - 1; i >= 0; i -= 1) {
-        const entry = policeCars[i];
-        const { car } = entry;
-        const dx = tx - car.x;
-        const dz = tz - car.z;
-        const dist = Math.hypot(dx, dz);
-        const wantHeading = Math.atan2(dx, dz);
-        car.heading += clamp(angleDelta(car.heading, wantHeading), -2.4 * dt, 2.4 * dt);
-        car.speed = Math.min(POLICE.maxSpeed, car.speed + POLICE.accel * dt);
-        const nx = car.x + Math.sin(car.heading) * car.speed * dt;
-        const nz = car.z + Math.cos(car.heading) * car.speed * dt;
-        if (world.hitsBuilding(nx, nz, 1.4)) {
-          // Stuck on a building: back up and turn around.
-          car.speed = -6;
-          car.heading += 1.8 * dt;
-          car.x += Math.sin(car.heading) * car.speed * dt;
-          car.z += Math.cos(car.heading) * car.speed * dt;
-        } else {
-          car.x = nx;
-          car.z = nz;
-        }
-        car.x = clamp(car.x, -CITY.bounds, CITY.bounds);
-        car.z = clamp(car.z, -CITY.bounds, CITY.seaZ - 4);
-        car.syncMesh();
-        // Light bar flash.
-        const on = Math.floor(time * 6) % 2 === 0;
-        if (car.mesh.userData.lightL) car.mesh.userData.lightL.material.emissiveIntensity = on ? 3 : 0.2;
-        if (car.mesh.userData.lightR) car.mesh.userData.lightR.material.emissiveIntensity = on ? 0.2 : 3;
-        // Ram the player's car, or catch the player on foot.
-        entry.ramCooldown -= dt;
-        if (dist < 4.2 && entry.ramCooldown <= 0) {
-          entry.ramCooldown = POLICE.ramCooldown;
-          if (playerCar) {
-            playerCar.health = Math.max(0, playerCar.health - POLICE.ramDamage);
-            playerCar.speed *= 0.4;
-            world.sparks(playerCar.x, 1, playerCar.z, 8);
-            audio.crash(0.6);
-            if (playerCar.health <= 0) {
-              // Car wrecked: the player is thrown out on foot.
-              playerCar.isPlayer = false;
-              player.x = playerCar.x + 3;
-              player.z = playerCar.z + 3;
-              player.mesh.visible = true;
-              player.reset(player.x, player.z, player.heading);
-              player.health = Math.max(20, player.health - 20);
-            }
-          } else if (playerCar === null) {
-            bustedTimer += POLICE.ramCooldown;
-          }
-        }
-        // On foot, a police car touching the player counts toward BUSTED.
-        if (!playerCar && dist < 3.2) {
-          bustedTimer += dt;
-          if (bustedTimer >= WANTED.bustedHold) {
-            audio.busted();
-            onBusted();
-            return;
-          }
-        } else if (!playerCar) {
-          bustedTimer = Math.max(0, bustedTimer - dt * 0.5);
-        }
-        // A police car that barely moves for a while is stuck: respawn it near the player.
-        if (Math.hypot(car.x - entry.lastX, car.z - entry.lastZ) < 0.5) {
-          entry.stuckTimer += dt;
-          if (entry.stuckTimer > 4) {
-            removePolice(i);
-            spawnPolice(tx, tz);
-          }
-        } else {
-          entry.stuckTimer = 0;
-        }
-        entry.lastX = car.x;
-        entry.lastZ = car.z;
-      }
-    },
+    scene,
+    random,
+    cars: [],
+    /** Seconds since any police car last saw Maya. */
+    unseenTime: 0,
+    decayTimer: 0,
+    bustTimer: 0,
   };
+}
+
+/** Keep the fielded police cars equal to the wanted level. */
+export function syncPolice(police, wanted, px, pz, resolveCircle) {
+  const want = WANTED.carsForStars[Math.min(WANTED.max, wanted)] || 0;
+  while (police.cars.length < want) {
+    const angle = police.random() * Math.PI * 2;
+    const dist = 70 + police.random() * 40;
+    const spot = police.scene.userData.world
+      ? police.scene.userData.world.snapToStreet(px + Math.sin(angle) * dist, pz + Math.cos(angle) * dist)
+      : { x: px + Math.sin(angle) * dist, z: pz + Math.cos(angle) * dist };
+    const car = createCar(police.scene, {
+      x: spot.x,
+      z: spot.z,
+      heading: Math.atan2(px - spot.x, pz - spot.z),
+      kind: 'police',
+      isPolice: true,
+    });
+    police.cars.push(car);
+  }
+  while (police.cars.length > want) {
+    const car = police.cars.pop();
+    removeCar(police.scene, car);
+  }
+}
+
+/**
+ * One police step. Returns events: { busted, damage } — damage is health lost
+ * this step from rams, busted is true when Maya is caught on foot.
+ */
+export function stepPolice(police, dt, wanted, player, playerCar, resolveCircle, otherCars) {
+  const events = { busted: false, damage: 0 };
+  if (wanted <= 0) {
+    police.bustTimer = 0;
+    return events;
+  }
+  const px = playerCar ? playerCar.x : player.x;
+  const pz = playerCar ? playerCar.z : player.z;
+  let anyNear = false;
+  const all = [...police.cars, ...(otherCars || [])];
+  for (const car of police.cars) {
+    if (car.removed) continue;
+    const dist = Math.hypot(px - car.x, pz - car.z);
+    if (dist < 90) anyNear = true;
+    // A ram lands, then the police car falls back for a couple of seconds
+    // instead of grinding against the player's car every frame.
+    car.ramCd = Math.max(0, (car.ramCd || 0) - dt);
+    // Navigation: close in, drive straight at Maya; far away, follow the
+    // street grid (BFS over the intersections) instead of through buildings.
+    // The route is replanned every few seconds as Maya moves.
+    car._routeT = (car._routeT || 0) + dt;
+    let tx = px;
+    let tz = pz;
+    if (dist > 30) {
+      if (!car._route || car._routeI >= car._route.length || car._routeT > 4) {
+        car._routeT = 0;
+        car._route = streetRoute(nearestIntersection(car.x, car.z), nearestIntersection(px, pz));
+        car._routeI = 0;
+      }
+      const wp = car._route[car._routeI];
+      if (wp) {
+        if (Math.hypot(wp.x - car.x, wp.z - car.z) < 8) car._routeI += 1;
+        else {
+          tx = wp.x;
+          tz = wp.z;
+        }
+      }
+    } else {
+      car._route = null;
+    }
+    const steer = steerToward(car, tx, tz);
+    // On foot and right on top of Maya: brake to a stop on her instead of
+    // circling — that is what a bust is.
+    const throttle = !playerCar && dist < 5 ? -1 : car.ramCd > 0 ? 0.25 : dist > 10 ? 1 : 0.4;
+    stepCar(car, { throttle, steer }, dt, resolveCircle, all);
+    // Ramming: touching the player's car damages it; touching Maya hurts her.
+    if (playerCar) {
+      if (dist < 3.6 && car.ramCd <= 0) {
+        // Instant damage (the caller applies it as-is, once per ram).
+        events.damage += POLICE.ramDamage * 1.5;
+        playerCar.speed *= 0.9;
+        car.crash = true;
+        car.ramCd = 2.5;
+      }
+    } else if (dist < 2.6) {
+      police.bustTimer += dt;
+      if (police.bustTimer >= POLICE.bustTime) {
+        events.busted = true;
+        police.bustTimer = 0;
+      }
+    }
+  }
+  if (!playerCar && !anyNear) police.bustTimer = Math.max(0, police.bustTimer - dt);
+  police.unseenTime = anyNear ? 0 : police.unseenTime + dt;
+  return events;
+}
+
+/** Heat decay: stars fade one at a time after a long stretch unseen. */
+export function decayWanted(police, dt, wanted) {
+  if (wanted <= 0) return 0;
+  if (police.unseenTime > WANTED.decayAfter) {
+    police.decayTimer += dt;
+    if (police.decayTimer >= WANTED.decayEvery) {
+      police.decayTimer = 0;
+      return wanted - 1;
+    }
+  } else {
+    police.decayTimer = 0;
+  }
+  return wanted;
 }

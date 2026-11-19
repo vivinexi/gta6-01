@@ -1,132 +1,76 @@
-// The screenshot scenes behind ?shot=start|play|chase|mission. Each one sets
-// up the real game from a fresh world with a fixed seed and plays it forward
-// for a fixed number of steps with a scripted input, so the frame is what a
-// short game really looks like and the same seed always gives the same frame.
-import * as THREE from '../vendor/three.module.js';
+// The screenshot scenes behind ?shot=start|play|chase|mission (with &seed=N).
+// Each one plays the real game forward from a fresh start, steered by an
+// autopilot that follows street waypoints toward the mission marker, so the
+// frame is what a short game really looks like — and the same seed always
+// gives the same frame. The caller renders a few frames, then sets
+// window.__shotReady.
 import { STEP } from './config.js';
 
-/**
- * Stage the named scene on the game object G and return how many fixed steps
- * to run with what scripted input, which screen to show and where to put the
- * camera (null = the normal follow camera).
- */
-export function stageShot(G, name) {
-  const shot = name === 'play' || name === 'chase' || name === 'mission' ? name : 'start';
-  G.state = 'play';
-  G.audio.unlock();
-  if (shot === 'start') {
-    G.player.reset(8, -8, Math.PI * 0.75);
-    G.missions.reset(G);
-    G.hud.showScreen('start');
-    return {
-      screen: 'start',
-      steps: 3 * 60,
-      move: { forward: 0, strafe: 0, run: false, jump: false },
-      camera: {
-        pos: new THREE.Vector3(90, 42, 150),
-        look: new THREE.Vector3(-20, 12, -60),
-      },
-    };
-  }
-  if (shot === 'play') {
-    // On foot on the road at z=0, walking west past a parked car, with
-    // pedestrians on the sidewalk and traffic on the road.
-    G.player.reset(80, 0, -Math.PI / 2);
-    G.cam.yaw = Math.PI / 2;
-    const parked = G.parkedCars[0];
-    parked.x = 70;
-    parked.z = 4;
-    parked.heading = Math.PI / 2;
-    parked.syncMesh();
-    const p0 = G.pedestrians.peds[0];
-    p0.x = 76;
-    p0.z = 9;
-    p0.heading = -Math.PI / 2;
-    const p1 = G.pedestrians.peds[1];
-    p1.x = 66;
-    p1.z = -9;
-    p1.heading = Math.PI / 2;
-    G.missions.reset(G);
-    G.hud.showScreen('play');
-    return {
-      screen: 'play',
-      steps: 2 * 60,
-      move: { forward: 1, strafe: 0, run: false, jump: false },
-      camera: null,
-    };
-  }
-  if (shot === 'chase') {
-    // The player tears down the middle of the city in a red car, 3 stars,
-    // two police cars on the bumper.
-    const car = G.parkedCars[0];
-    car.x = 0;
-    car.z = 120;
-    car.heading = Math.PI;
-    car.speed = 30;
-    car.isPlayer = true;
-    car.parked = false;
-    car.syncMesh();
-    G.playerCar = car;
-    G.player.mesh.visible = false;
-    G.wanted.setStars(3, 0);
-    G.missions.reset(G);
-    G.hud.showScreen('play');
-    // Police right behind.
-    const p1 = G.wanted.policeCars[0];
-    const p2 = G.wanted.policeCars[1];
-    if (p1) {
-      p1.car.x = -4;
-      p1.car.z = 138;
-      p1.car.heading = Math.PI;
-      p1.car.speed = 32;
-      p1.car.syncMesh();
-    }
-    if (p2) {
-      p2.car.x = 5;
-      p2.car.z = 148;
-      p2.car.heading = Math.PI;
-      p2.car.speed = 30;
-      p2.car.syncMesh();
-    }
-    return {
-      screen: 'play',
-      steps: 90,
-      move: { forward: 1, strafe: 0, run: false, jump: false },
-      camera: null,
-    };
-  }
-  // mission: the Sunset Run, first drop ahead, Vultures on the sidewalk.
-  // The car sits ON the road x=-222 heading south, straight at the first
-  // drop marker, so the beacon is visible down the road.
-  const car = G.parkedCars[1] || G.parkedCars[0];
-  car.x = -222;
-  car.z = -180;
-  car.heading = 0;
-  car.speed = 12;
-  car.isPlayer = true;
-  car.parked = false;
-  car.syncMesh();
-  G.playerCar = car;
-  G.player.mesh.visible = false;
-  G.missions.reset(G);
-  G.missions.start(G, 3);
-  // The run starts as soon as the staged steps run (the player is already
-  // in the car, so mission 4 moves to its timed stage on the first step).
-  G.wanted.setStars(1, 0);
-  G.combat.spawnEnemy(-212, -196, 'Vulture');
-  G.combat.spawnEnemy(-210, -206, 'Vulture');
-  G.hud.showScreen('play');
-  return {
-    screen: 'play',
-    steps: 60,
-    move: { forward: 1, strafe: 0, run: false, jump: false },
-    camera: null,
-  };
+function runSeconds(game, seconds) {
+  const steps = Math.round(seconds / STEP);
+  for (let i = 0; i < steps; i += 1) game.stepFixed(STEP);
 }
 
-/** Run the staged scene's steps through the game's own step function. */
-export function runShotSteps(G, staging, stepGame) {
-  for (let i = 0; i < staging.steps; i += 1) {
-    stepGame(STEP, staging.move, 0, { dx: 0, dy: 0 });
+/**
+ * Stage the named scene on a fresh game and return the screen to show.
+ * start: the title over the sunset city. play: Maya on foot by a car, job one
+ * briefed. chase: Maya driving north on the -60 street with three stars and
+ * police behind her. mission: the Midnight Run, mid-route to checkpoint two.
+ */
+export function stageShot(name, game) {
+  game.newGame();
+  if (name === 'play') {
+    // On the 120 street, walking toward the blue sedan parked by the kerb.
+    game.teleport(0, 120);
+    game.setCameraYaw(Math.PI * 0.85);
+    game.autopilot = { mode: 'point', x: 24, z: 122 };
+    runSeconds(game, 7);
+    game.autopilot = null;
+    return { screen: 'play' };
   }
+  if (name === 'chase') {
+    // In the yellow dock sedan, three stars, racing north on the -180 street
+    // with police behind — job one is live, so the objective line matches.
+    game.teleport(-150, -205);
+    game.forceEnterNearestCar();
+    game.setWanted(3);
+    game.autopilot = {
+      mode: 'route',
+      points: [
+        { x: -150, z: -180 },
+        { x: -180, z: -180 },
+        { x: -180, z: -60 },
+      ],
+      i: 0,
+    };
+    runSeconds(game, 12);
+    game.autopilot = null;
+    return { screen: 'play' };
+  }
+  if (name === 'mission') {
+    // The Midnight Run: in the yellow dock sedan, racing the street route
+    // toward downtown plaza, the second checkpoint.
+    game.startMission(3);
+    game.teleport(-150, -205);
+    game.forceEnterNearestCar();
+    game.autopilot = {
+      mode: 'route',
+      points: [
+        { x: -150, z: -180 },
+        { x: -180, z: -180 },
+        { x: -180, z: 0 },
+        { x: 0, z: 0 },
+        { x: 0, z: 60 },
+        { x: 205, z: 60 },
+      ],
+      i: 0,
+    };
+    runSeconds(game, 9);
+    game.autopilot = null;
+    return { screen: 'play' };
+  }
+  // start (and any unknown name): the title screen over a living city.
+  game.toTitle();
+  runSeconds(game, 5);
+  return { screen: 'title' };
 }

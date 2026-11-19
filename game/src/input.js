@@ -1,21 +1,27 @@
-// Keyboard and pointer input. Held keys are read every step; one-shot
-// presses (enter car, jump, punch, pause, mute) are queued as bit flags and
-// taken once by the loop, so a press between two frames is never lost and
-// never counted twice. Mouse drag orbits the camera; a click shoots.
-export const ACTION_ENTER = 1;
-export const ACTION_JUMP = 2;
-export const ACTION_PUNCH = 4;
-export const ACTION_PAUSE = 8;
+// Keyboard and pointer input for a third-person open world. Held keys are read
+// every frame; one-shot presses (confirm, pause, interact, punch, mute) are queued
+// as bit flags and taken once by the loop, so a press between two frames is never
+// lost and never counted twice. The camera orbits while the pointer is dragged;
+// a click (press and release without dragging) fires the pistol.
+
+export const ACTION_CONFIRM = 1;
+export const ACTION_PAUSE = 2;
+export const ACTION_INTERACT = 4;
+export const ACTION_PUNCH = 8;
 export const ACTION_MUTE = 16;
 export const ACTION_SHOOT = 32;
 
-const ENTER = new Set(['KeyE']);
+const FORWARD = new Set(['KeyW', 'ArrowUp']);
+const BACK = new Set(['KeyS', 'ArrowDown']);
+const LEFT = new Set(['KeyA', 'ArrowLeft']);
+const RIGHT = new Set(['KeyD', 'ArrowRight']);
+const RUN = new Set(['ShiftLeft', 'ShiftRight']);
 const JUMP = new Set(['Space']);
+const CONFIRM = new Set(['Enter', 'Space']);
+const PAUSE = new Set(['KeyP', 'Escape']);
+const INTERACT = new Set(['KeyE']);
 const PUNCH = new Set(['KeyF']);
-const PAUSE = new Set(['Escape', 'KeyP']);
 const MUTE = new Set(['KeyM']);
-
-const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export function createInput(canvas) {
   const held = new Set();
@@ -23,64 +29,77 @@ export function createInput(canvas) {
   let orbitDX = 0;
   let orbitDY = 0;
   let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
+  let downX = 0;
+  let downY = 0;
+  let moved = 0;
+
+  function press(code) {
+    if (CONFIRM.has(code)) actions |= ACTION_CONFIRM;
+    else if (PAUSE.has(code)) actions |= ACTION_PAUSE;
+    else if (INTERACT.has(code)) actions |= ACTION_INTERACT;
+    else if (PUNCH.has(code)) actions |= ACTION_PUNCH;
+    else if (MUTE.has(code)) actions |= ACTION_MUTE;
+  }
 
   window.addEventListener('keydown', (event) => {
-    if (MOVE_KEYS.includes(event.code)) held.add(event.code);
-    else if (ENTER.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_ENTER;
-    } else if (JUMP.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_JUMP;
-    } else if (PUNCH.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PUNCH;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else if (MUTE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_MUTE;
-    } else if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
-      held.add(event.code);
-    } else return;
-    event.preventDefault();
+    if (event.repeat) return;
+    held.add(event.code);
+    press(event.code);
+    if (FORWARD.has(event.code) || BACK.has(event.code) || LEFT.has(event.code) || RIGHT.has(event.code) || JUMP.has(event.code)) {
+      event.preventDefault();
+    }
   });
   window.addEventListener('keyup', (event) => {
     held.delete(event.code);
   });
-  // A key released while the tab is hidden never sends keyup: let go on blur.
-  window.addEventListener('blur', () => {
-    held.clear();
-    dragging = false;
-  });
+  window.addEventListener('blur', () => held.clear());
 
   canvas.addEventListener('pointerdown', (event) => {
     dragging = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    if (event.button === 0) actions |= ACTION_SHOOT;
+    moved = 0;
+    downX = event.clientX;
+    downY = event.clientY;
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch {
+      // Synthetic or already-released pointers have nothing to capture.
+    }
   });
-  window.addEventListener('pointermove', (event) => {
+  canvas.addEventListener('pointermove', (event) => {
     if (!dragging) return;
-    orbitDX += event.clientX - lastX;
-    orbitDY += event.clientY - lastY;
-    lastX = event.clientX;
-    lastY = event.clientY;
+    const dx = event.movementX || 0;
+    const dy = event.movementY || 0;
+    orbitDX += dx;
+    orbitDY += dy;
+    moved += Math.abs(dx) + Math.abs(dy);
   });
-  window.addEventListener('pointerup', () => {
+  canvas.addEventListener('pointerup', (event) => {
     dragging = false;
+    // A click without a drag is a pistol shot; a drag was a camera orbit.
+    if (moved < 6) actions |= ACTION_SHOOT;
   });
 
-  const has = (...codes) => codes.some((c) => held.has(c));
+  function has(set) {
+    for (const code of set) if (held.has(code)) return true;
+    return false;
+  }
 
   return {
-    /** Forward/back/strafe as -1, 0 or 1 each (camera-relative, read by player/vehicles). */
-    move() {
-      return {
-        forward: (has('KeyW', 'ArrowUp') ? 1 : 0) - (has('KeyS', 'ArrowDown') ? 1 : 0),
-        strafe: (has('KeyD', 'ArrowRight') ? 1 : 0) - (has('KeyA', 'ArrowLeft') ? 1 : 0),
-        run: held.has('ShiftLeft') || held.has('ShiftRight'),
-      };
+    /** Forward/back strafe in [-1, 1]: W/S (or arrows). */
+    moveY() {
+      return (has(FORWARD) ? 1 : 0) - (has(BACK) ? 1 : 0);
     },
-    /** Mouse drag since the last call, in pixels. */
+    /** Left/right strafe in [-1, 1]: A/D (or arrows). */
+    moveX() {
+      return (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0);
+    },
+    run() {
+      return has(RUN);
+    },
+    jump() {
+      return has(JUMP);
+    },
+    /** Pointer-drag deltas since the last call, in pixels. */
     takeOrbit() {
       const out = { dx: orbitDX, dy: orbitDY };
       orbitDX = 0;
@@ -92,6 +111,14 @@ export function createInput(canvas) {
       const taken = actions;
       actions = 0;
       return taken;
+    },
+    /** Test and debug helpers: pretend a key is held, or queue an action. */
+    debugHold(code, on) {
+      if (on) held.add(code);
+      else held.delete(code);
+    },
+    debugAction(flag) {
+      actions |= flag;
     },
   };
 }

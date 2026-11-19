@@ -3,102 +3,113 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Solmar Heat — an open-world crime game</title>
+<link rel="icon" href="data:,">
+<title>Neon Harbor — an open-world crime game in Port Vela</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1f2a; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1420; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  #hud { display: none; position: fixed; inset: 0; pointer-events: none; color: #eef1f5; }
-  .panel { background: rgba(20, 22, 28, 0.72); border-radius: 10px; padding: 10px 14px; }
-  #top-left { position: absolute; top: 14px; left: 14px; }
-  #health-bar { width: 220px; height: 14px; background: #333a44; border-radius: 7px; overflow: hidden; }
-  #health-fill { height: 100%; width: 100%; background: #3fce62; }
-  #health-text { font-size: 12px; color: #cfd6de; margin-top: 2px; }
-  #cash { font-size: 22px; font-weight: 700; color: #7ee2a0; margin-top: 6px; }
-  #top-right { position: absolute; top: 14px; right: 14px; text-align: right; }
-  #stars { font-size: 26px; letter-spacing: 3px; color: #ffd23c; visibility: hidden; text-shadow: 0 0 8px rgba(255, 82, 82, 0.8); }
-  #objective { max-width: 420px; font-size: 15px; line-height: 1.4; margin-top: 6px; }
-  #speed { position: absolute; right: 16px; bottom: 16px; font-size: 26px; font-weight: 700; display: none; }
-  #minimap { position: absolute; left: 14px; bottom: 14px; border: 2px solid rgba(255, 255, 255, 0.35); border-radius: 8px; background: #20242a; }
-  #phone { position: absolute; left: 210px; bottom: 16px; max-width: 380px; white-space: pre-line; font-size: 14px; line-height: 1.45; display: none; border-left: 4px solid #ffd23c; }
-  #hint { position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%); font-size: 15px; display: none; }
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; display: none; }
-  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255, 255, 255, 0.9); }
-  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; }
-  #crosshair::after { top: 8px; left: 0; width: 18px; height: 2px; }
-  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10, 12, 18, 0.55); color: #eef1f5; z-index: 10; }
-  .screen .card { max-width: 640px; background: rgba(24, 27, 34, 0.94); border-radius: 16px; padding: 34px 44px; text-align: center; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
-  .screen h1 { margin: 0 0 4px; font-size: 52px; letter-spacing: 2px; color: #ffb36b; }
-  .screen h2 { margin: 0 0 14px; font-size: 15px; font-weight: 400; color: #ffd23c; letter-spacing: 3px; text-transform: uppercase; }
-  .screen p { font-size: 15px; line-height: 1.55; color: #cfd6de; }
-  .screen .controls { text-align: left; font-size: 14px; line-height: 1.8; color: #aeb6c2; margin: 18px auto; display: inline-block; }
-  .screen button { pointer-events: auto; font-size: 18px; font-weight: 700; padding: 12px 30px; margin: 6px; border: none; border-radius: 10px; background: #ffb36b; color: #1b1f2a; cursor: pointer; }
-  .screen button:hover { background: #ffc98a; }
-  .screen button.secondary { background: #333a44; color: #eef1f5; }
-  #busted-screen h1 { color: #ff5252; }
-  #complete-screen h1 { color: #7ee2a0; }
+  .hidden { display: none !important; }
+  /* ---- HUD ---- */
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #eef1f5; z-index: 5; }
+  #hud-top-left { position: absolute; top: 14px; left: 14px; }
+  #hud-health-bar { width: 190px; height: 14px; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.35); border-radius: 7px; overflow: hidden; }
+  #hud-health-fill { height: 100%; width: 100%; background: #37c24a; }
+  #hud-health-text { font-size: 12px; text-shadow: 0 1px 2px #000; }
+  #hud-cash { margin-top: 6px; font-size: 22px; font-weight: 700; color: #7de87d; text-shadow: 0 2px 3px #000; }
+  #hud-stars { position: absolute; top: 12px; right: 16px; font-size: 26px; letter-spacing: 3px; color: #ffd98a; text-shadow: 0 2px 4px #000; }
+  #hud-stars.hot { color: #ff5a3c; }
+  #hud-objective { position: absolute; left: 50%; transform: translateX(-50%); top: 12px; max-width: 46vw; text-align: center; font-size: 15px; font-weight: 600; background: rgba(0,0,0,0.55); padding: 7px 14px; border-radius: 8px; }
+  #hud-timer { position: absolute; left: 50%; transform: translateX(-50%); top: 58px; font-size: 20px; font-weight: 800; color: #ffe14d; text-shadow: 0 2px 3px #000; }
+  #hud-speed { position: absolute; right: 16px; bottom: 16px; font-size: 26px; font-weight: 800; text-shadow: 0 2px 4px #000; }
+  #hud-prompt { position: absolute; left: 50%; transform: translateX(-50%); bottom: 88px; font-size: 16px; font-weight: 700; background: rgba(0,0,0,0.6); padding: 7px 14px; border-radius: 8px; }
+  #hud-message { position: absolute; left: 50%; transform: translateX(-50%); bottom: 140px; max-width: 70vw; text-align: center; font-size: 16px; background: rgba(20,12,28,0.82); border: 1px solid rgba(255,217,138,0.5); padding: 10px 16px; border-radius: 10px; }
+  #minimap-wrap { position: absolute; left: 14px; bottom: 14px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; overflow: hidden; background: #23262e; }
+  #minimap { display: block; width: 190px; height: 190px; }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,0.85); }
+  #crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+  #crosshair::after { left: 0; top: 6px; width: 14px; height: 2px; }
+  /* ---- Full-screen overlays ---- */
+  .screen { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #f5efe8; background: linear-gradient(180deg, rgba(26,16,40,0.82), rgba(120,40,20,0.78)); padding: 20px; }
+  .screen h1 { margin: 0; font-size: 64px; letter-spacing: 4px; color: #ffd98a; text-shadow: 0 4px 18px rgba(0,0,0,0.8); }
+  .screen h2 { margin: 8px 0 0; font-size: 20px; font-weight: 400; color: #ffd9c2; }
+  .screen p { max-width: 620px; font-size: 16px; line-height: 1.55; }
+  .screen .controls { font-size: 14px; color: #d8cdd8; background: rgba(0,0,0,0.4); padding: 12px 18px; border-radius: 10px; }
+  .screen button { pointer-events: auto; margin: 6px; padding: 12px 26px; font-size: 17px; font-weight: 700; color: #241a2e; background: #ffd98a; border: none; border-radius: 10px; cursor: pointer; }
+  .screen button:hover { background: #ffe9a8; }
+  .screen button.secondary { background: rgba(255,255,255,0.16); color: #f5efe8; border: 1px solid rgba(255,255,255,0.4); }
+  #screen-busted { background: linear-gradient(180deg, rgba(10,10,60,0.85), rgba(10,10,60,0.75)); }
+  #screen-wasted { background: linear-gradient(180deg, rgba(60,8,8,0.85), rgba(30,4,4,0.8)); }
+  #screen-wasted h1, #screen-busted h1 { color: #ff6a4d; }
+  #title-stats, #complete-stats { font-size: 15px; color: #ffe9a8; }
+  kbd { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.35); border-radius: 4px; padding: 1px 6px; font-family: inherit; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Solmar Heat: an open-world crime game in Solmar City"></canvas>
+<canvas id="game" aria-label="Neon Harbor: drive, steal cars and run jobs across Port Vela"></canvas>
 <p id="status" role="status" aria-live="polite"></p>
 
-<div id="hud">
-  <div id="top-left" class="panel">
-    <div id="health-bar"><div id="health-fill"></div></div>
-    <div id="health-text">100</div>
-    <div id="cash">$0</div>
+<div id="hud" class="hidden">
+  <div id="hud-top-left">
+    <div id="hud-health-bar"><div id="hud-health-fill"></div></div>
+    <div id="hud-health-text">100</div>
+    <div id="hud-cash">$0</div>
   </div>
-  <div id="top-right" class="panel">
-    <div id="stars">☆☆☆☆☆</div>
-    <div id="objective"></div>
-  </div>
-  <div id="speed" class="panel">0 km/h</div>
-  <canvas id="minimap" width="180" height="180"></canvas>
-  <div id="phone" class="panel"></div>
-  <div id="hint" class="panel"></div>
+  <div id="hud-stars">☆☆☆☆☆</div>
+  <div id="hud-objective"></div>
+  <div id="hud-timer" class="hidden"></div>
+  <div id="hud-speed"></div>
+  <div id="hud-prompt" class="hidden"></div>
+  <div id="hud-message" class="hidden"></div>
+  <div id="minimap-wrap"><canvas id="minimap" width="190" height="190"></canvas></div>
   <div id="crosshair"></div>
 </div>
 
-<div id="start-screen" class="screen" style="display:flex">
-  <div class="card">
-    <h1>SOLMAR HEAT</h1>
-    <h2>A Solmar City story</h2>
-    <p>Sunset over Solmar City. Joey Marlow is back in town with empty pockets and a fixer named Rico Vane on the phone. Steal cars, lose the heat, run the packages — and make Solmar yours before the sun goes down.</p>
-    <div class="controls">
-      <b>W A S D</b> — move / drive &nbsp;·&nbsp; <b>Shift</b> — run<br>
-      <b>Mouse drag</b> — look around &nbsp;·&nbsp; <b>Space</b> — jump<br>
-      <b>E</b> — steal / exit car &nbsp;·&nbsp; <b>Click</b> — shoot &nbsp;·&nbsp; <b>F</b> — punch<br>
-      <b>Esc</b> — pause &nbsp;·&nbsp; <b>M</b> — mute
-    </div>
-    <br>
-    <button id="start-button">Start a new story</button>
-    <button id="continue-button" class="secondary">Continue</button>
+<div id="screen-title" class="screen">
+  <h1>NEON HARBOR</h1>
+  <h2>An open-world crime game in Port Vela</h2>
+  <p>Maya Reyes is back in Port Vela with empty pockets and a fixer who never
+  forgets a debt. Steal cars, outrun the police, and run four jobs for Otto
+  “Ledger” Kline — before Rook and the Breakers run you out of town.</p>
+  <p id="title-stats"></p>
+  <div>
+    <button id="btn-new">New Game</button>
+    <button id="btn-continue" class="secondary">Continue</button>
+  </div>
+  <p class="controls"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; drag mouse to look &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>Space</kbd> jump &nbsp;·&nbsp; <kbd>E</kbd> steal / exit car &nbsp;·&nbsp; click shoot &nbsp;·&nbsp; <kbd>F</kbd> punch &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>M</kbd> mute</p>
+</div>
+
+<div id="screen-pause" class="screen hidden">
+  <h1>PAUSED</h1>
+  <p>Port Vela waits for no one — except right now.</p>
+  <div>
+    <button id="btn-resume">Resume</button>
+    <button id="btn-restart" class="secondary">Restart Story</button>
+    <button id="btn-quit" class="secondary">Save &amp; Quit to Title</button>
   </div>
 </div>
 
-<div id="pause-screen" class="screen">
-  <div class="card">
-    <h1>PAUSED</h1>
-    <p>Solmar waits for no one — except right now.</p>
-    <button id="resume-button">Resume</button>
-    <button id="quit-button" class="secondary">Save &amp; quit to title</button>
-  </div>
+<div id="screen-busted" class="screen hidden">
+  <h1>BUSTED</h1>
+  <p>The Port Vela police caught Maya. Bail is $100 — Otto is not amused.</p>
+  <div><button id="btn-busted-ok">Pay Bail &amp; Continue</button></div>
 </div>
 
-<div id="busted-screen" class="screen">
-  <div class="card">
-    <h1>BUSTED</h1>
-    <p>The Solmar police caught up with you. Rico is already working on the bail — but the story is not over.</p>
-    <button id="busted-restart">Get back out there</button>
-  </div>
+<div id="screen-wasted" class="screen hidden">
+  <h1>WASTED</h1>
+  <p>Maya is down. The harbour keeps moving without her — for a $150 hospital bill.</p>
+  <div><button id="btn-wasted-ok">Get Up &amp; Continue</button></div>
 </div>
 
-<div id="complete-screen" class="screen">
-  <div class="card">
-    <h1>SOLMAR IS YOURS</h1>
-    <p>All four jobs done. The Vultures are finished, Rico is paid, and the sunset over the marina has never looked better. Joey Marlow runs this city now.</p>
-    <button id="complete-again">Play the story again</button>
+<div id="screen-complete" class="screen hidden">
+  <h1>PORT VELA IS YOURS</h1>
+  <p>All four jobs done. Rook is gone, Otto is paid, and the harbour lights
+  are all yours, Maya.</p>
+  <p id="complete-stats"></p>
+  <div>
+    <button id="btn-complete-again">Keep Driving (Free Roam)</button>
+    <button id="btn-complete-title" class="secondary">Back to Title</button>
   </div>
 </div>
 

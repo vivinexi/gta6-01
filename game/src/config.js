@@ -1,113 +1,159 @@
-// Solmar Heat — every tuning number and colour in one place.
-// The city is a grid of blocks separated by roads; the beach and the sea
-// sit along the south edge (+z). All units are metres, all speeds m/s.
+// Neon Harbor — every tuning number, colour and story beat in one place.
+// Port Vela is a sunset port city: a street grid downtown, docks to the north,
+// a beach and the sea to the east, a marina and a lighthouse to the south.
+
+export const GAME_TITLE = 'Neon Harbor';
+export const CITY_NAME = 'Port Vela';
+export const SAVE_KEY = 'neon-harbor.save.v1';
+
+/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
 export const STEP = 1 / 60;
 
-export const CITY = {
-  pitch: 74, // block (60) + road (14)
-  halfBlocks: 3, // roads at k*pitch for k in -3..3
-  block: 60,
-  road: 14,
-  beachZ: 3 * 74 + 7, // where the sand starts
-  seaZ: 3 * 74 + 42, // where the water starts
-  bounds: 3 * 74 + 14, // playable edge, all sides
-};
+/** Half the playable square, in metres. Streets run on a 60 m grid inside it. */
+export const CITY_HALF = 240;
+export const STREET_SPACING = 60;
+export const ROAD_WIDTH = 14;
+/** Street centrelines, west to east and north to south. */
+export const STREETS = [-180, -120, -60, 0, 60, 120, 180];
 
 export const PLAYER = {
-  radius: 0.55,
-  walkSpeed: 5.2,
-  runSpeed: 9.0,
-  accel: 40,
+  walkSpeed: 6,
+  runSpeed: 10,
   jumpSpeed: 8.5,
-  gravity: 22,
-  maxHealth: 100,
+  gravity: 24,
+  radius: 0.6,
+  height: 1.8,
+  health: 100,
 };
 
 export const CAR = {
-  length: 4.6,
-  width: 2.0,
-  maxSpeed: 38, // ~137 km/h
-  reverseSpeed: 12,
   accel: 16,
   brake: 30,
-  steer: 1.9, // rad/s at full lock, scaled down with speed
-  maxHealth: 100,
-  enterDistance: 4.5,
+  reverseAccel: 10,
+  maxSpeed: 42,
+  maxReverse: 12,
+  steer: 0.55,
+  grip: 6,
+  radius: 1.6,
+  health: 100,
 };
 
-export const TRAFFIC = { count: 14, speedMin: 8, speedMax: 13 };
-export const PEDESTRIANS = { count: 26, walkSpeed: 1.4, runSpeed: 5.5 };
-
 export const WANTED = {
-  maxStars: 5,
-  decayDelay: 18, // seconds without a crime before stars start to fall
-  decayInterval: 9, // seconds per star lost while hidden
-  hideDistance: 55, // police must be farther than this to count as hidden
-  bustedHold: 2.0, // seconds a police car must touch the player on foot
+  max: 5,
+  /** Seconds with no police line of sight before one star fades. */
+  decayAfter: 12,
+  decayEvery: 8,
+  /** How many police cars each star level fields. */
+  carsForStars: [0, 1, 2, 3, 4, 5],
 };
 
 export const POLICE = {
-  maxSpeed: 41,
-  accel: 20,
-  ramDamage: 14,
-  ramCooldown: 1.2,
+  speed: 34,
+  ramDamage: 4,
+  /** Seconds a police car must stay touching the player on foot to bust them. */
+  bustTime: 2.5,
+  bustFine: 100,
+};
+
+export const COMBAT = {
+  pistolDamage: 34,
+  pistolRange: 70,
+  pistolCooldown: 0.28,
+  punchDamage: 20,
+  punchRange: 2.2,
+  punchCooldown: 0.45,
+  rivalHealth: 70,
+  rivalShotDamage: 7,
+  rivalShotCooldown: 1.4,
+  rivalRange: 45,
 };
 
 export const MISSIONS = [
   {
-    id: 'hot-wheels',
-    title: '1 — Hot Wheels',
-    reward: 400,
+    id: 0,
+    name: 'Hot Wheels',
+    payout: 400,
     briefing:
-      'Rico: Joey, listen. The Vultures took my ride. Take ANY car on the street — I do not care whose — and bring it to the docks marker. Make it quick.',
+      'Otto: "Maya, the docks. A canary-yellow sedan, keys in it, owner in a meeting. Bring it to my garage — and try not to wake the whole harbour."',
+    steps: [
+      { kind: 'reach', label: 'Reach the yellow sedan at the docks', target: [-150, -205] },
+      { kind: 'enterCar', label: 'Steal the sedan (press E)', target: [-150, -205] },
+      { kind: 'driveTo', label: 'Deliver the sedan to Otto’s garage', target: [60, 175] },
+    ],
   },
   {
-    id: 'the-package',
-    title: '2 — The Package',
-    reward: 600,
+    id: 1,
+    name: 'Harbour Lights',
+    payout: 600,
     briefing:
-      'Rico: Good. Now walk to the blue crate by the marina and pick up the package. Then drive it to the tower on the north side. No peeking inside.',
+      'Otto: "A package is waiting on the marina pier. Pick it up, drop it at the lighthouse. The Breakers are sniffing around the marina — keep your pistol handy."',
+    steps: [
+      { kind: 'reach', label: 'Pick up the package at the marina pier', target: [205, 60] },
+      { kind: 'driveTo', label: 'Deliver the package to the lighthouse', target: [0, 222] },
+    ],
   },
   {
-    id: 'heat-check',
-    title: '3 — Heat Check',
-    reward: 800,
+    id: 2,
+    name: 'Heat Wave',
+    payout: 800,
     briefing:
-      'Rico: The Vultures ratted you out — you have got 2 stars and their boys are coming. Lose the heat. If they shoot, shoot back. Stay alive.',
+      'Otto: "Rook’s Breakers are coming for you. Make some noise — two stars at least — then vanish. Lose every star and the heat is off."',
+    steps: [
+      { kind: 'wanted', label: 'Raise your wanted level to 2 stars', wanted: 2 },
+      { kind: 'clearWanted', label: 'Lose all wanted stars — stay out of sight', wanted: 0 },
+    ],
   },
   {
-    id: 'sunset-run',
-    title: '4 — Sunset Run',
-    reward: 1500,
+    id: 3,
+    name: 'Midnight Run',
+    payout: 1500,
     briefing:
-      'Rico: Last one. The package goes to three drops before the sun is gone — 90 seconds, in a car. Do it and we are square, kid. Solmar is yours.',
+      'Otto: "One last job. Five checkpoints, ninety seconds, the whole of Port Vela. Rook is betting you can’t do it. Prove him wrong."',
+    timeLimit: 90,
+    steps: [
+      { kind: 'driveTo', label: 'Checkpoint 1/5 — the docks gate', target: [-150, -180] },
+      { kind: 'driveTo', label: 'Checkpoint 2/5 — downtown plaza', target: [0, 0] },
+      { kind: 'driveTo', label: 'Checkpoint 3/5 — the marina', target: [205, 60] },
+      { kind: 'driveTo', label: 'Checkpoint 4/5 — the beach road', target: [215, -120] },
+      { kind: 'driveTo', label: 'Checkpoint 5/5 — Otto’s garage', target: [60, 175] },
+    ],
   },
 ];
 
+export const STORY_COMPLETE = 'Port Vela is yours, Maya. Rook is gone, Otto is paid, and the harbour lights are all yours.';
+
 export const PALETTE = {
-  skyTop: 0x2e6fb0,
-  skyBottom: 0xffb36b,
-  sun: 0xffd9a0,
-  fog: 0xf7a56b,
-  sea: 0x1d7fa8,
-  sand: 0xe8c98a,
-  asphalt: 0x2f3338,
-  sidewalk: 0x9a9a92,
-  line: 0xf2d13c,
-  building: [0xcf8f6a, 0x8fa3b8, 0xd9c08a, 0x7fa08a, 0xb87a8a, 0x6a7a9a],
-  windowLit: 0xffd27a,
-  windowDark: 0x2c3e50,
-  palm: 0x2f7a3d,
-  trunk: 0x7a5a38,
-  playerShirt: 0x2e86de,
-  playerPants: 0x22252a,
-  playerSkin: 0xd9a066,
-  police: 0x1a1d22,
-  policeLight: 0x2244ff,
-  enemy: 0x8a2f2f,
+  sky: 0xff8f5e,
+  skyTop: 0x2b2a55,
+  fog: 0xe8805a,
+  ground: 0x3a3f4a,
+  road: 0x23262e,
+  roadLine: 0xd8c25a,
+  sidewalk: 0x6d6a63,
+  sand: 0xd9b380,
+  sea: 0x1d5f7a,
+  seaDeep: 0x14455e,
+  building: ['#7a5a6e', '#5e6b7a', '#8a6a4e', '#4e5e6b', '#96684f', '#6b4e6e'],
+  windowLit: '#ffd98a',
+  windowDark: '#232838',
+  car: ['#e8c832', '#c23b2e', '#2e6fc2', '#3aa655', '#e8e8e8', '#222831', '#c26a2e', '#7a3aa6'],
+  police: '#1d3fae',
+  player: '#e8632e',
+  ped: ['#c2a878', '#7a9e7a', '#9e7a8a', '#7a8aa6', '#b5b5b5'],
+  rival: '#20242e',
+  marker: 0xffe14d,
+  beacon: 0xffe14d,
+  sun: 0xffd27a,
 };
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-/** Where the save is kept between visits (this browser only). */
-export const SAVE_KEY = 'solmar-heat.save.v1';
+/** Named places the HUD, minimap and missions share. */
+export const PLACES = {
+  garage: { x: 60, z: 175, label: 'Otto’s Garage' },
+  docksCar: { x: -150, z: -205, label: 'Docks' },
+  marina: { x: 205, z: 60, label: 'Marina' },
+  lighthouse: { x: 0, z: 222, label: 'Lighthouse' },
+  plaza: { x: 0, z: 0, label: 'Downtown Plaza' },
+  beachRoad: { x: 215, z: -120, label: 'Beach Road' },
+};
